@@ -3,11 +3,15 @@ const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 const pLimit = require('p-limit');
+const fetch = require('node-fetch');
+const FormData = require('form-data');
 
 // 环境变量
-const urls = process.env.TARGET_URLS.split(',');
+const urls = process.env.TARGET_URLS.split(',').filter(Boolean);
 const cookieMap = JSON.parse(process.env.COOKIE_MAP || '{}');
 const userAgent = process.env.USER_AGENT || 'Mozilla/5.0';
+const IMGE_API_KEY = process.env.IMGE_API_KEY;
+const ALBUM_ID = process.env.IMGE_ALBUM_ID;
 const COOKIE_FILE = path.join(__dirname, 'cookies.json');
 
 // 模糊处理函数
@@ -16,6 +20,26 @@ const blurImage = async (inputPath, outputPath) => {
     .blur(15)
     .jpeg({ quality: 80 })
     .toFile(outputPath);
+};
+
+// 上传图床
+const uploadToImge = async (filePath) => {
+  const formdata = new FormData();
+  formdata.append("key", IMGE_API_KEY);
+  formdata.append("source", fs.createReadStream(filePath));
+  formdata.append("album_id", ALBUM_ID);
+  formdata.append("nsfw", '1');
+
+  const response = await fetch("https://im.ge/api/1/upload", {
+    method: 'POST',
+    body: formdata,
+  });
+
+  if (response.ok) {
+    const data = await response.json();
+    return data?.image?.url || null;
+  }
+  return null;
 };
 
 // Cookie 解析函数
@@ -65,6 +89,7 @@ const handlePage = async (browser, url, index) => {
 
   try {
     await page.goto(url, { waitUntil: 'networkidle2' });
+    await page.waitForTimeout(4000);
 
     if (url.includes('streamlit.app')) {
       await page.waitForSelector('button', { timeout: 30000, visible: true });
@@ -84,6 +109,7 @@ const handlePage = async (browser, url, index) => {
     const blurredPath = path.join(__dirname, `blurred_${index + 1}.jpg`);
     await blurImage(screenshotPath, blurredPath);
 
+    await uploadToImge(blurredPath);
     await saveCookies(page, domain);
   } catch (_) {
     // 静默处理错误
@@ -99,7 +125,7 @@ const handlePage = async (browser, url, index) => {
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
-  const limit = pLimit(5); // 最多同时运行 5 个任务
+  const limit = pLimit(5);
   const tasks = urls.map((url, index) =>
     limit(() => handlePage(browser, url, index))
   );
