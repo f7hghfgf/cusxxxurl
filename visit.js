@@ -1,4 +1,4 @@
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer'); // ✅ 使用完整版 Puppeteer
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
