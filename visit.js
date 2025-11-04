@@ -2,7 +2,6 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
-const pLimit = require('p-limit');
 const fetch = require('node-fetch');
 const FormData = require('form-data');
 
@@ -13,6 +12,8 @@ const userAgent = process.env.USER_AGENT || 'Mozilla/5.0';
 const IMGE_API_KEY = process.env.IMGE_API_KEY;
 const ALBUM_ID = process.env.IMGE_ALBUM_ID;
 const COOKIE_FILE = path.join(__dirname, 'cookies.json');
+const MAX_CONCURRENCY = parseInt(process.env.MAX_CONCURRENCY || '5');
+const STAY_DURATION_MS = parseInt(process.env.STAY_DURATION_MS || '4000');
 
 // 模糊处理函数
 const blurImage = async (inputPath, outputPath) => {
@@ -89,7 +90,7 @@ const handlePage = async (browser, url, index) => {
 
   try {
     await page.goto(url, { waitUntil: 'networkidle2' });
-    await page.waitForTimeout(4000);
+    await page.waitForTimeout(STAY_DURATION_MS);
 
     if (url.includes('streamlit.app')) {
       await page.waitForSelector('button', { timeout: 30000, visible: true });
@@ -118,14 +119,15 @@ const handlePage = async (browser, url, index) => {
   }
 };
 
-// 主流程
+// 主流程（顶层 async 包裹）
 (async () => {
+  const pLimit = await import('p-limit').then(mod => mod.default);
   const browser = await puppeteer.launch({
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
-  const limit = pLimit(5);
+  const limit = pLimit(MAX_CONCURRENCY);
   const tasks = urls.map((url, index) =>
     limit(() => handlePage(browser, url, index))
   );
